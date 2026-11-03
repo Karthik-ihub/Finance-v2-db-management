@@ -1,12 +1,15 @@
-# Supabase Database Backup Tool
+# Supabase Database Backup & Restore Tool
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A comprehensive Python script for backing up Supabase PostgreSQL databases with robust error handling, retry logic, and detailed reporting.
+A comprehensive Python tool for backing up and restoring Supabase PostgreSQL databases with robust error handling, retry logic, and detailed reporting.
+
+**Backup** your existing database to CSV files, then **Restore** to a new database with a single command.
 
 ## Features
 
-- ✅ **Comprehensive Backup**: Backs up all tables in your Supabase database
+### Backup Features
+- ✅ **Comprehensive Backup**: Backs up all tables in your Supabase database to CSV files
 - ✅ **Retry Mechanism**: Automatic retries for failed tables (configurable)
 - ✅ **Detailed Logging**: Both console and file logging with timestamps
 - ✅ **Progress Tracking**: Shows progress as [X/Y] for each table
@@ -14,6 +17,15 @@ A comprehensive Python script for backing up Supabase PostgreSQL databases with 
 - ✅ **Validation**: Verifies files were created and contain data
 - ✅ **Configuration**: Easy setup via `.env` file
 - ✅ **Resilient**: Handles connection issues and large datasets
+
+### Migration Features
+- ✅ **Direct Database-to-Database**: No intermediate CSV files needed
+- ✅ **Schema Preservation**: Copies exact table structure (columns, types, constraints)
+- ✅ **Type Preservation**: Maintains exact PostgreSQL data types
+- ✅ **Flexible Options**: Force overwrite, skip existing, or only copy data
+- ✅ **Incremental Migration**: Only migrates missing tables
+- ✅ **Batch Copy**: Efficient data transfer with chunking (10,000 rows per batch)
+- ✅ **Progress Tracking**: Real-time feedback during migration
 
 ## Quick Start
 
@@ -117,6 +129,33 @@ SCHEMA=custom_schema
 python backup.py
 ```
 
+### Migrate to New Database
+
+```bash
+# 1. Set your target database URL in .env
+TARGET_DATABASE_URL=postgresql://postgres:new_password@new-host:5432/postgres?
+
+# 2. Run direct migration from source to target
+python migrate.py
+
+# Or pass target URL as argument
+python migrate.py --target-url postgresql://...
+```
+
+### Migrate with Force Overwrite
+
+```bash
+# Overwrite existing tables in target database
+python migrate.py --force
+```
+
+### Migrate Without Creating Tables
+
+```bash
+# Only copy data to existing tables (don't create new ones)
+python migrate.py --no-create
+```
+
 ## Output Structure
 
 After running the backup, you'll find:
@@ -196,11 +235,14 @@ The script handles various error scenarios:
 
 ```
 Finance-V2-DB-Management/
-├── backup.py              # Main backup script
+├── backup.py              # Backup to CSV files
+├── migrate.py             # Direct database-to-database migration
 ├── .env                   # Configuration (gitignored)
 ├── .env.example           # Example configuration
 ├── .gitignore             # Git ignore rules
-└── README.md              # Documentation
+├── LICENSE                # MIT License
+├── README.md              # Documentation
+└── requirements.txt       # Python dependencies
 ```
 
 ## Contributing
