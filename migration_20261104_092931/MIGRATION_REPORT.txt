@@ -1,0 +1,78 @@
+
+================================================================================
+                      SUPABASE DATABASE MIGRATION REPORT
+================================================================================
+
+Start Time:       2026-11-04 09:29:31
+End Time:         2026-11-04 09:33:25
+Duration:         0:03:54.561201
+
+Source Database:  postgresql://postgres.ialtahptjcebrgdkuytl:Pathuth...
+Target Database:  postgresql://postgres.hlxsdhamkoaxcqwiilti:0610200...
+Source Schema:    public
+Target Schema:    public
+
+--------------------------------------------------------------------------------
+MIGRATION STATISTICS
+--------------------------------------------------------------------------------
+Total Tables:     48
+Successful:       48 [OK]
+Failed:           0 [FAILED]
+Skipped:          0 [SKIPPED]
+Success Rate:     100.0%
+
+Total Rows:       16,526
+
+--------------------------------------------------------------------------------
+DETAILED RESULTS
+--------------------------------------------------------------------------------
+  [OK] ap_balance_snapshot                             432 rows
+  [OK] ap_kpi_setting                                    1 rows
+  [OK] ar_balance_snapshot                           3,384 rows
+  [OK] ar_discount_policy_setting                        1 rows
+  [OK] ar_kpi_monthly_target                           215 rows
+  [OK] ar_kpi_setting                                    1 rows
+  [OK] ar_unapplied_cash_allocation_setting              2 rows
+  [OK] ar_write_off                                      2 rows
+  [OK] bad_debt_provision_approval                      10 rows
+  [OK] bad_debt_provision_rate                           7 rows
+  [OK] bill_master                                     696 rows
+  [OK] business_unit_master                             10 rows
+  [OK] cash_application                                  4 rows
+  [OK] cash_application_line                             4 rows
+  [OK] collections_prioritization_email_approval        280 rows
+  [OK] collections_prioritization_email_intent         827 rows
+  [OK] company_master                                    1 rows
+  [OK] cost_of_capital_rate                              3 rows
+  [OK] credit_approval_master                           60 rows
+  [OK] customer_master                                 105 rows
+  [OK] dispute_master                                   79 rows
+  [OK] forecast_actual                                   0 rows
+  [OK] inventory_snapshot                            3,600 rows
+  [OK] invoice_master                                1,499 rows
+  [OK] location_master                                  25 rows
+  [OK] material_master                                  30 rows
+  [OK] order_fulfillment                               240 rows
+  [OK] pay_term_master                                   3 rows
+  [OK] payment_allocation                              672 rows
+  [OK] permission                                       16 rows
+  [OK] policy_master                                    31 rows
+  [OK] product_master                                   15 rows
+  [OK] purchase_snapshot                                 0 rows
+  [OK] receipt_allocation                            1,507 rows
+  [OK] receipt_master                                1,511 rows
+  [OK] revenue_snapshot                                  0 rows
+  [OK] role                                              5 rows
+  [OK] role_permission                                  13 rows
+  [OK] sales_adjustment_master                          79 rows
+  [OK] sales_order                                       0 rows
+  [OK] sales_order_line                                  0 rows
+  [OK] user                                              5 rows
+  [OK] user_role                                         5 rows
+  [OK] vendor_credit_approval_master                    40 rows
+  [OK] vendor_dispute_master                            30 rows
+  [OK] vendor_master                                    42 rows
+  [OK] vendor_payment_master                           672 rows
+  [OK] wastage_event                                   362 rows
+
+================================================================================
