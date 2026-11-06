@@ -1,268 +1,470 @@
-# Supabase Database Backup & Restore Tool
+# Supabase Database Backup & Migration Tool
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+This project provides a PostgreSQL backup and migration workflow that uses the official `pg_dump` and `pg_restore` utilities to produce reliable custom-format archives.
 
-A comprehensive Python tool for backing up and restoring Supabase PostgreSQL databases with robust error handling, retry logic, and detailed reporting.
+**IMPORTANT:** This is a production migration tool. It does NOT run any restore, migration, or destructive operation automatically. All restore operations require explicit configuration, validation, and approval.
 
-**Backup** your existing database to CSV files, then **Restore** to a new database with a single command.
+## What Was Wrong Before
 
-## Features
+The original script exported each table into CSV files. That method only captured table data and silently ignored database structure such as:
 
-### Backup Features
-- ✅ **Comprehensive Backup**: Backs up all tables in your Supabase database to CSV files
-- ✅ **Retry Mechanism**: Automatic retries for failed tables (configurable)
-- ✅ **Detailed Logging**: Both console and file logging with timestamps
-- ✅ **Progress Tracking**: Shows progress as [X/Y] for each table
-- ✅ **Summary Report**: Generates a detailed BACKUP_REPORT.txt with statistics
-- ✅ **Validation**: Verifies files were created and contain data
-- ✅ **Configuration**: Easy setup via `.env` file
-- ✅ **Resilient**: Handles connection issues and large datasets
+- ENUM types and custom PostgreSQL types
+- Foreign keys and primary keys
+- Indexes, sequences, and triggers
+- Views and materialized views
+- Functions, procedures, and policies
+- Extension dependencies and schema objects
 
-### Migration Features
-- ✅ **Direct Database-to-Database**: No intermediate CSV files needed
-- ✅ **Schema Preservation**: Copies exact table structure (columns, types, constraints)
-- ✅ **Type Preservation**: Maintains exact PostgreSQL data types
-- ✅ **Flexible Options**: Force overwrite, skip existing, or only copy data
-- ✅ **Incremental Migration**: Only migrates missing tables
-- ✅ **Batch Copy**: Efficient data transfer with chunking (10,000 rows per batch)
-- ✅ **Progress Tracking**: Real-time feedback during migration
+Because those objects were missing, a migration based only on CSV files often failed to recreate a working application.
 
-## Quick Start
+## Current Backup Approach
 
-### 1. Clone and Setup
+The script creates a **complete custom-format PostgreSQL archive** using `pg_dump` and verifies the archive with `pg_restore --list` before reporting success.
 
-```bash
-# Clone the repository
-git clone <repository-url>
-cd Finance-V2-DB-Management
+**This is the primary backup**, and CSV export remains optional for table-level inspection only.
 
-# Copy the example environment file
-cp .env.example .env
+## PostgreSQL Backup Behavior
 
-# Edit .env with your Supabase credentials
-nano .env  # or use your preferred editor
+A full `pg_dump --format=c` archive includes the database objects and data that are accessible to the connecting role, including:
+
+- Schemas and tables
+- ENUMs and custom types
+- Primary keys and foreign keys
+- Constraints and indexes
+- Sequences
+- Views and materialized views
+- Functions and procedures
+- Triggers
+- Extension objects and relevant dependencies
+- RLS policies
+
+This is the **correct primary backup** for a Supabase migration. CSV files are only a supplementary inspection backup.
+
+## Mandatory Safety Rules
+
+### For All Operations
+
+1. **Passwords MUST NOT be in database URLs** - Use PGPASSWORD or PGPASSFILE environment variables
+2. **Validation restores MUST use a dedicated validation database** - Never use production for validation
+3. **Validation database identity MUST be explicitly configured** - The script verifies target matches configured identity
+4. **Archive readability does NOT prove restore success** - A separate validation restore test is REQUIRED
+5. **NO automatic destructive operations** - DROP, TRUNCATE, DELETE, --clean, --create are NEVER used automatically
+
+### For Validation Restores (`restore_validation.py`)
+
+1. **Explicit identity required** - Set VALIDATION_DATABASE_HOST, VALIDATION_DATABASE_NAME, or VALIDATION_DATABASE_URL
+2. **Target must match identity** - The script rejects any target that doesn't match the configured validation identity
+3. **Target must NOT be source** - The script compares with DATABASE_URL and rejects if they match
+4. **Application schemas must be empty** - The script checks for existing objects in application schemas
+5. **Supabase-managed schemas handled** - Platform schemas (auth, storage, etc.) are excluded from emptiness checks
+6. **Uses --exit-on-error** - Restore stops on any error; partial restores are detected
+7. **Password-free URLs required** - The script rejects password-bearing connection strings
+
+### For Production Migrations (`migrate.py`)
+
+1. **Explicit approval required** - Must use both `--target-mode=approved-target` AND `--allow-production`
+2. **Validation mode is default** - Without explicit approval, only validation restores are allowed
+3. **Target identity validation** - For validation mode, target must match configured validation identity
+4. **Source/target comparison** - Script prevents restoring to the same database as source
+5. **Conflict detection** - Target is inspected for conflicting application objects
+6. **Uses --exit-on-error** - Restore stops on any error
+7. **Detailed report** - Generates report distinguishing fully successful vs partial/failed restore
+
+## Required Tools
+
+Install PostgreSQL client tools on your machine so that `pg_dump` and `pg_restore` are available on PATH.
+
+On Windows, install PostgreSQL 17 or 18 client tools from the official PostgreSQL installer. For your case, a PostgreSQL 18.6 client is expected to work with a PostgreSQL 17.11 source server for dump/restore operations.
+
+Confirm with:
+
+```powershell
+pg_dump --version
+pg_restore --version
 ```
 
-### 2. Install Dependencies
+If `pg_dump` or `pg_restore` is not on PATH, set `PG_DUMP_PATH` and `PG_RESTORE_PATH` in `.env`.
 
-```bash
-pip install pandas sqlalchemy python-dotenv
+## Secure Credentials
+
+**NEVER place a password in `DATABASE_URL` or any database URL that is passed to a command-line process.**
+
+Use a password-free URI in `.env`, then set the secret in a secure environment variable or `.pgpass` file:
+
+```powershell
+$env:PGPASSWORD = "your-secret-password"
+# or
+$env:PGPASSFILE = "C:\path\to\.pgpass"
 ```
 
-### 3. Run Backup
+### .pgpass File (Recommended)
 
-```bash
-# Run the backup script
-python backup.py
-```
-
-This will:
-- Create a new timestamped backup directory (e.g., `supabase_backup_20261103_153000`)
-- Backup all tables from your database
-- Generate a detailed report (`BACKUP_REPORT.txt`)
-- Log everything to `backup.log`
-
-## Configuration
-
-Edit the `.env` file to configure your backup:
-
-```env
-# Required: Your Supabase database connection URL
-DATABASE_URL=postgresql://postgres:[YOUR-PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres?
-
-# Database schema to backup (default: public)
-SCHEMA=public
-
-# Tables to skip (comma-separated, default: _prisma_migrations)
-SKIP_TABLES=_prisma_migrations
-
-# Only backup specific tables (comma-separated, leave empty for ALL)
-ONLY_TABLES=
-
-# Retry settings
-MAX_RETRIES=3
-RETRY_DELAY_SECONDS=2
-
-# Batch size for large tables (leave empty for no batching)
-BATCH_SIZE=
-```
-
-### Getting Your DATABASE_URL
-
-1. Go to your Supabase project dashboard
-2. Navigate to **Project Settings** → **Database**
-3. Under **Connection String**, copy the **Connection string** (not the URI)
-4. Replace the placeholder in `.env` with your actual connection string
-
-## Usage Examples
-
-### Backup All Tables
-
-```bash
-python backup.py
-```
-
-### Backup Specific Tables Only
-
-```bash
-# Edit .env and set:
-ONLY_TABLES=customer_master,invoice_master,sales_adjustment_master
-
-python backup.py
-```
-
-### Skip System Tables
-
-```bash
-# Edit .env and set:
-SKIP_TABLES=_prisma_migrations,ap_balance_snapshot,ar_balance_snapshot
-
-python backup.py
-```
-
-### Custom Schema
-
-```bash
-# Edit .env and set:
-SCHEMA=custom_schema
-
-python backup.py
-```
-
-### Migrate to New Database
-
-```bash
-# 1. Set your target database URL in .env
-TARGET_DATABASE_URL=postgresql://postgres:new_password@new-host:5432/postgres?
-
-# 2. Run direct migration from source to target
-python migrate.py
-
-# Or pass target URL as argument
-python migrate.py --target-url postgresql://...
-```
-
-### Migrate with Force Overwrite
-
-```bash
-# Overwrite existing tables in target database
-python migrate.py --force
-```
-
-### Migrate Without Creating Tables
-
-```bash
-# Only copy data to existing tables (don't create new ones)
-python migrate.py --no-create
-```
-
-## Output Structure
-
-After running the backup, you'll find:
+Create a `.pgpass` file with the following format:
 
 ```
-Finance-V2-DB-Management/
-├── backup.py              # Main backup script
-├── .env                   # Your configuration (gitignored)
-├── .env.example           # Example configuration
-├── .gitignore             # Git ignore rules
-├── README.md              # This file
-└── supabase_backup_YYYYMMDD_HHMMSS/  # Backup directory
-    ├── table1.csv         # Table data
-    ├── table2.csv
-    ├── ...
-    ├── backup.log         # Log file
-    └── BACKUP_REPORT.txt  # Summary report
+hostname:port:database:username:password
 ```
-
-## Backup Report
-
-The `BACKUP_REPORT.txt` file contains:
-
-- Start and end timestamps
-- Duration of backup
-- Table statistics (total, successful, failed)
-- Row counts and file sizes for each table
-- List of failed tables (if any) with error details
 
 Example:
 ```
-================================================================================
-                        SUPABASE BACKUP SUMMARY REPORT
-================================================================================
-
-Backup Directory: /path/to/supabase_backup_20261103_153000
-Start Time:       2026-11-03 15:30:00
-End Time:         2026-11-03 15:32:15
-Duration:         0:02:15.234567
-
---------------------------------------------------------------------------------
-TABLE STATISTICS
---------------------------------------------------------------------------------
-Total Tables:     49
-Successful:       48 [OK]
-Failed:           1 [FAILED]
-Success Rate:     97.9%
-
-Total Rows:       123,456
-Total Size:       45,678,901 bytes (43.56 MB)
-
---------------------------------------------------------------------------------
-SUCCESSFUL BACKUPS
---------------------------------------------------------------------------------
-  [OK] customer_master                       1,234 rows
-  [OK] invoice_master                        5,678 rows
-  ...
-
---------------------------------------------------------------------------------
-FAILED BACKUPS
---------------------------------------------------------------------------------
-  [FAILED] large_table (Attempts: 3)
-     Error: Connection timeout after 60 seconds
+db.your-project-ref.supabase.co:5432:postgres:postgres:your-secret-password
 ```
 
-## Error Handling
+On Windows, place it at: `C:\Users\[YOUR-USER]\.pgpass`
 
-The script handles various error scenarios:
+Set file permissions to 600 (read/write only by owner).
 
-- **Connection Issues**: Automatic reconnection with retry logic
-- **Large Tables**: Optional batch processing (configure `BATCH_SIZE`)
-- **Permission Errors**: Logs and continues with other tables
-- **Keyboard Interrupt**: Graceful shutdown with partial report
-- **Missing Configuration**: Clear error message if `.env` is incomplete
-
-## Project Structure
-
-```
-Finance-V2-DB-Management/
-├── backup.py              # Backup to CSV files
-├── migrate.py             # Direct database-to-database migration
-├── .env                   # Configuration (gitignored)
-├── .env.example           # Example configuration
-├── .gitignore             # Git ignore rules
-├── LICENSE                # MIT License
-├── README.md              # Documentation
-└── requirements.txt       # Python dependencies
+Then set in `.env`:
+```env
+PGPASSFILE=C:\Users\YourUser\.pgpass
+DATABASE_URL=postgresql://postgres@db.your-project-ref.supabase.co:5432/postgres
 ```
 
-## Contributing
+The scripts will automatically use PGPASSWORD or PGPASSFILE for authentication.
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+## Setup
+
+```powershell
+Copy-Item .env.example .env
+notepad .env
+```
+
+### Configure Your Databases
+
+Update the following in `.env`:
+
+1. **SOURCE_DATABASE_URL** or **DATABASE_URL** - Your source database to back up
+2. **TARGET_DATABASE_URL** - Your target database for migration
+3. **VALIDATION_DATABASE_URL** - Your dedicated validation database
+4. **VALIDATION_DATABASE_HOST** - Explicit host for validation DB
+5. **VALIDATION_DATABASE_NAME** - Explicit database name for validation DB
+6. **VALIDATION_PROJECT_REF** - Project reference for validation DB
+7. **PGPASSWORD** or **PGPASSFILE** - Authentication (NEVER in URLs)
+
+All database URLs must be **password-free**.
+
+### Example Configuration
+
+```env
+# Source database
+SOURCE_DATABASE_URL=postgresql://postgres@db.source-project.supabase.co:5432/postgres
+DATABASE_URL=postgresql://postgres@db.source-project.supabase.co:5432/postgres
+PGPASSFILE=C:\Users\YourUser\.pgpass
+
+# Target database (for production migration)
+TARGET_DATABASE_URL=postgresql://postgres@db.target-project.supabase.co:5432/postgres
+TARGET_DATABASE_MODE=approved-target
+
+# Validation database (REQUIRED for validation restores)
+VALIDATION_DATABASE_URL=postgresql://postgres@db.validation-project.supabase.co:5432/supabase_restore_validation
+VALIDATION_DATABASE_HOST=db.validation-project.supabase.co
+VALIDATION_DATABASE_NAME=supabase_restore_validation
+VALIDATION_PROJECT_REF=validation-project
+```
+
+## Install Dependencies
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+## Run the Backup
+
+```powershell
+python .\backup.py
+```
+
+The script will:
+
+- Create a new timestamped backup folder
+- Generate a schema inventory report (SCHEMA_INVENTORY.txt)
+- Generate a custom-format `.dump` archive with `pg_dump`
+- Verify the archive by running `pg_restore --list`
+- Generate a SHA256 checksum and checksum file
+- Create a manifest listing the archive contents
+- Write a backup report and metadata JSON
+- Optionally export selected tables to CSV if `EXPORT_CSV=true`
+
+### Schema Inventory Report
+
+The backup generates a `SCHEMA_INVENTORY.txt` file that:
+
+- Identifies **application-owned schemas** separately from **Supabase-managed schemas**
+- Shows object counts (tables, views, functions, sequences) for each schema
+- Classifies schemas as: Application, Supabase-managed, or System
+- **Warns if DUMP_SCHEMAS creates a partial backup**
+
+**IMPORTANT:** Review this file before migration. The backup does NOT automatically exclude or include schemas based on assumptions. An explicit reviewed schema scope is **REQUIRED** before treating a migration backup as ready for migration.
+
+## Verify a Backup
+
+### 1) Inspect the backup folder
+
+```powershell
+Get-ChildItem .\supabase_backup_YYYYMMDD_HHMMSS
+```
+
+### 2) Confirm the archive exists and is not empty
+
+```powershell
+Get-Item .\supabase_backup_YYYYMMDD_HHMMSS\*.dump
+```
+
+### 3) Read the archive contents (read-only verification)
+
+```powershell
+& pg_restore --list .\supabase_backup_YYYYMMDD_HHMMSS\supabase_backup_YYYYMMDD_HHMMSS.dump
+```
+
+### 4) Generate a checksum
+
+```powershell
+Get-FileHash .\supabase_backup_YYYYMMDD_HHMMSS\supabase_backup_YYYYMMDD_HHMMSS.dump -Algorithm SHA256 | Format-List
+```
+
+### 5) View the manifest and reports
+
+```powershell
+Get-Content .\supabase_backup_YYYYMMDD_HHMMSS\BACKUP_MANIFEST.txt -TotalCount 60
+Get-Content .\supabase_backup_YYYYMMDD_HHMMSS\BACKUP_REPORT.txt -TotalCount 200
+Get-Content .\supabase_backup_YYYYMMDD_HHMMSS\SCHEMA_INVENTORY.txt -TotalCount 100
+```
+
+**WARNING:** The `pg_restore --list` step validates **archive readability only**. This does NOT prove that a restore will succeed. A separate restore test in a validation database is REQUIRED.
+
+## Validation Restore (MANDATORY)
+
+Before any production migration, you **MUST** perform a validation restore test in a dedicated validation database.
+
+### Create a Validation Database
+
+1. Create a **new, empty** database in your Supabase project or database server
+2. **Do NOT use your production database** for validation
+3. Configure the validation database identity in `.env`:
+   ```env
+   VALIDATION_DATABASE_URL=postgresql://postgres@db.your-project.supabase.co:5432/supabase_restore_validation
+   VALIDATION_DATABASE_HOST=db.your-project.supabase.co
+   VALIDATION_DATABASE_NAME=supabase_restore_validation
+   VALIDATION_PROJECT_REF=your-project
+   ```
+
+### Run the Validation Restore
+
+```powershell
+python .\restore_validation.py `
+  --archive .\supabase_backup_YYYYMMDD_HHMMSS\supabase_backup_YYYYMMDD_HHMMSS.dump `
+  --database-url "postgresql://postgres@db.your-project.supabase.co:5432/supabase_restore_validation"
+```
+
+The script will:
+
+1. **Verify validation database identity** - Rejects if target doesn't match configured identity
+2. **Reject source database** - Prevents restoring to the source database
+3. **Reject password-bearing URLs** - Prevents credential exposure
+4. **Check for existing application objects** - Ensures application schemas are empty
+5. **Handle Supabase-managed schemas** - Allows platform schemas to exist
+6. **Use --exit-on-error** - Stops on any error
+7. **Generate a report** - Documents the validation result
+
+**The validation restore MUST complete successfully before proceeding to production migration.**
+
+## Production Migration
+
+After successful validation restore, you can perform a production migration.
+
+**WARNING:** Production migrations require explicit approval.
+
+```powershell
+python .\migrate.py `
+  --archive .\supabase_backup_YYYYMMDD_HHMMSS\supabase_backup_YYYYMMDD_HHMMSS.dump `
+  --target-url "postgresql://postgres@db.target-project.supabase.co:5432/postgres" `
+  --target-mode=approved-target `
+  --allow-production
+```
+
+The script will:
+
+1. **Require explicit approval** - Both `--target-mode=approved-target` AND `--allow-production` are required
+2. **Validate target URL** - Rejects password-bearing URLs
+3. **Compare source and target** - Prevents restoring to the same database
+4. **Inspect target for conflicts** - Detects existing application objects
+5. **Use --exit-on-error** - Stops on any error
+6. **Generate detailed report** - Documents success or failure
+
+### Dry Run Mode
+
+To validate without actually running the restore:
+
+```powershell
+python .\migrate.py `
+  --archive .\supabase_backup_YYYYMMDD_HHMMSS\supabase_backup_YYYYMMDD_HHMMSS.dump `
+  --target-url "postgresql://postgres@db.target-project.supabase.co:5432/postgres" `
+  --target-mode=approved-target `
+  --allow-production `
+  --dry-run
+```
+
+## Important Warnings
+
+### About `DUMP_SCHEMAS`
+
+For a **complete backup**, leave `DUMP_SCHEMAS` **empty**.
+
+When `DUMP_SCHEMAS` is set to a subset, the archive is only a **partial backup** of selected schemas. This is **NOT** a complete migration backup.
+
+```env
+# For complete backup (RECOMMENDED):
+DUMP_SCHEMAS=
+
+# For partial backup (NOT RECOMMENDED for migration):
+DUMP_SCHEMAS=public,custom_schema
+```
+
+**An explicit reviewed schema scope is REQUIRED before treating a migration backup as ready for migration.**
+
+### Archive Readability vs Restore Success
+
+**IMPORTANT:** A successful `pg_restore --list` (archive readability check) **does NOT prove** that a restore will succeed. 
+
+The only way to prove restore success is to:
+1. Create a dedicated validation database
+2. Run a validation restore with `restore_validation.py`
+3. Verify the restored database works correctly
+
+### What Archive Readability Checks
+
+- Archive file is valid PostgreSQL custom-format
+- Archive can be parsed by pg_restore
+- Archive contains recognizable database objects
+
+### What Archive Readability Does NOT Check
+
+- Whether objects can be created in the target database
+- Whether there are permission issues
+- Whether there are dependency issues
+- Whether the target database has conflicting objects
+- Whether the restore will complete without errors
+
+## Separate Restore-Validation Procedure
+
+A real restore test is **intentionally separate** and should be performed only against a **dedicated validation database**, not against your live target database.
+
+```powershell
+# Step 1: Create a fresh validation database in Supabase
+# Step 2: Configure validation identity in .env
+# Step 3: Run validation restore
+python .\restore_validation.py `
+  --archive .\backup\archive.dump `
+  --database-url "postgresql://postgres@db.project.supabase.co:5432/supabase_restore_validation"
+
+# Step 4: Verify the restored validation database
+# Step 5: Only then proceed to production migration
+```
+
+## CSV Export Behavior
+
+CSV export remains available, but only as a **supplementary backup**. It is **NOT** the main loss-prevention mechanism.
+
+If you want to keep the older table-by-table inspection workflow:
+
+```powershell
+$env:EXPORT_CSV = "true"
+python .\backup.py
+```
+
+Or set in `.env`:
+
+```env
+EXPORT_CSV=true
+ONLY_TABLES=customer_master,invoice_master
+SKIP_TABLES=
+```
+
+## Supabase Objects Not Covered by PostgreSQL Dump
+
+A PostgreSQL dump does **NOT** migrate everything in a Supabase project. The following require **separate migration steps**:
+
+- Supabase Auth users and authentication metadata
+- Storage objects and buckets
+- Edge Functions and their deployed code
+- Project secrets and environment variables
+- Global roles, permissions, and project-level configuration
+- Realtime subscriptions and project settings outside the database
+
+These items must be handled **separately** from the database dump.
+
+## What Changed in the Code
+
+### restore_validation.py (Mandatory Safety Changes)
+
+1. **Explicit validation identity required** - Must set VALIDATION_DATABASE_HOST, VALIDATION_DATABASE_NAME, or VALIDATION_DATABASE_URL
+2. **Target must match identity** - Script rejects any target that doesn't match configured identity
+3. **Target must NOT be source** - Script compares with DATABASE_URL and rejects if they match
+4. **Application schemas checked** - Script verifies application schemas are empty before restore
+5. **Supabase-managed schemas handled** - Platform schemas (auth, storage, etc.) are allowed to exist
+6. **--exit-on-error added** - Restore stops on any error
+7. **Password-bearing URLs rejected** - Script rejects any URL with embedded password
+8. **No destructive operations** - --clean, --create, DROP, TRUNCATE, DELETE are never used
+9. **Schema emptiness check** - Prevents accidental overwrite of existing data
+10. **Never trusts description/database name alone** - Explicit identity configuration is required
+
+### migrate.py (Mandatory Safety Changes)
+
+1. **Explicit target mode required** - Must specify validation or approved-target
+2. **Validation identity enforced** - For validation mode, target must match configured identity
+3. **Explicit production approval** - Requires both --target-mode=approved-target AND --allow-production
+4. **Source/target comparison** - Prevents restoring to same database
+5. **Conflict detection** - Inspects target for existing application objects
+6. **--exit-on-error added** - Restore stops on any error
+7. **Detailed report** - Distinguishes fully successful from partial/failed restore
+8. **No automatic overwrites** - Existing objects are never automatically dropped or overwritten
+9. **Dry run mode** - Allows validation without executing restore
+
+### backup.py (Improvements)
+
+1. **Schema inventory report** - Generated SCHEMA_INVENTORY.txt identifying application vs Supabase-managed schemas
+2. **Password rejection** - Explicitly rejects password-bearing DATABASE_URL values
+3. **Query parameter preservation** - strip_password_from_url preserves query parameters while removing password
+4. **Schema scope warning** - Warns that DUMP_SCHEMAS creates partial backup, requires explicit review for migration
+5. **SOURCE_DATABASE_URL alias** - Supports both SOURCE_DATABASE_URL and DATABASE_URL
+6. **Read-only preflight** - Schema inventory is generated without modifying database
+7. **No automatic schema filtering** - Does not assume which schemas to include/exclude
+
+### .env.example
+
+1. **Separate configurations** - Documents SOURCE, TARGET, and VALIDATION databases separately
+2. **Explicit identity settings** - Adds VALIDATION_DATABASE_HOST, VALIDATION_DATABASE_NAME, VALIDATION_PROJECT_REF
+3. **Password-free URLs** - All examples show password-free connection strings
+4. **PGPASSWORD/PGPASSFILE instructions** - Clear documentation on secure credential handling
+5. **Deprecated settings marked** - FORCE_OVERWRITE, CREATE_TABLES marked as unused
+
+### README.md
+
+1. **Updated safety documentation** - Explains all mandatory safety rules
+2. **Validation restore procedure** - Detailed steps for validation restore
+3. **Archive readability warning** - Clearly explains that readability != restore success
+4. **Schema inventory documentation** - Explains the new schema classification report
+5. **Explicit warnings** - About DUMP_SCHEMAS, validation requirements, etc.
+
+## Notes for Beginners
+
+Think of a PostgreSQL dump like a **complete snapshot** of the database structure and data. CSV files are like a spreadsheet export of table content only; they are useful for inspection but they do not preserve the database design.
+
+A `pg_dump` custom-format archive is the **right choice** for a migration because it keeps the database schema and data together.
+
+### Key Concepts
+
+- **pg_dump**: Creates a backup archive of the database
+- **pg_restore**: Restores from the archive to a database
+- **Custom format (-Fc)**: Most flexible format, supports parallel restore
+- **--no-owner**: Objects restored without original ownership (for portability)
+- **--no-privileges**: Permissions not transferred (for portability)
+- **--exit-on-error**: Stops on first error (ensures complete success or clear failure)
+- **--list**: Read-only archive inspection (verifies readability only)
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- Built with Python, pandas, and SQLAlchemy
-- Designed for Supabase PostgreSQL databases
-- Inspired by the need for reliable database backups
-
----
-
-**Note**: This tool is designed for backing up Supabase databases. Always verify your backups and store them securely. The authors are not responsible for data loss or backup failures.
+This project is licensed under the MIT License.
